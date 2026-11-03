@@ -1,0 +1,4 @@
+# Extra trusted IPs / CIDR ranges, one per line. Comments after # are fine.
+# Reloaded automatically. Telegram /trust and the "Trust" button add lines here.
+# 203.0.113.45      # phone hotspot
+# 198.51.100.0/24   # office
