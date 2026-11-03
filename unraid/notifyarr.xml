@@ -7,9 +7,10 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/p1zzm1ssile/Notifyarr/issues</Support>
   <Project>https://github.com/p1zzm1ssile/Notifyarr</Project>
-  <Overview>Alerts for your Docker containers and Unraid server, sent to Telegram and/or email: crashes, unhealthy containers, error logs, security events, disk/array/parity/mover problems, UPS, SMART, reboots and more. Every check can be switched off. LAN-only web GUI. Never expose this container to the internet.</Overview>
+  <Overview>Alerts for your Docker containers and Unraid server, sent to Telegram and/or email: crashes, unhealthy containers, error logs, security events, disk/array/parity/mover problems, UPS, SMART, reboots and more. Every check can be switched off. Set up Telegram, email and the password in the LAN-only web GUI after first start. Never expose this container to the internet.</Overview>
   <Category>Tools: Status:Stable</Category>
   <WebUI>http://[IP]:[PORT:8484]/</WebUI>
+  <Icon>https://raw.githubusercontent.com/p1zzm1ssile/Notifyarr/main/docs/icon.png</Icon>
   <ExtraParams>--security-opt no-new-privileges:true --memory=192m --label notifyarr.enable=false</ExtraParams>
   <Config Name="Web GUI port (LAN only)" Target="8484" Default="8484" Mode="tcp" Description="Never port-forward this." Type="Port" Display="always" Required="false" Mask="false">8484</Config>
   <Config Name="Config" Target="/config" Default="/mnt/user/appdata/notifyarr" Mode="rw" Description="config.toml, trusted_ips.txt, state" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/notifyarr</Config>
@@ -22,17 +23,4 @@
   <Config Name="Shares and pools" Target="/host/mnt" Default="/mnt" Mode="ro,slave" Description="free space, backups, appdata sizes" Type="Path" Display="advanced" Required="false" Mask="false">/mnt</Config>
   <Config Name="Docker containers dir" Target="/host/docker-containers" Default="/var/lib/docker/containers" Mode="ro" Description="docker.img space and log sizes" Type="Path" Display="advanced" Required="false" Mask="false">/var/lib/docker/containers</Config>
   <Config Name="TZ" Target="TZ" Default="Europe/London" Mode="" Description="" Type="Variable" Display="always" Required="false" Mask="false">Europe/London</Config>
-  <Config Name="GUI password" Target="GUI_PASSWORD" Default="" Mode="" Description="10+ characters. Empty = GUI off." Type="Variable" Display="always" Required="false" Mask="true"></Config>
-  <Config Name="Telegram bot token" Target="TELEGRAM_BOT_TOKEN" Default="" Mode="" Description="From @BotFather" Type="Variable" Display="always" Required="false" Mask="true"></Config>
-  <Config Name="Telegram chat ID" Target="TELEGRAM_CHAT_ID" Default="" Mode="" Description="" Type="Variable" Display="always" Required="false" Mask="false"></Config>
-  <Config Name="Telegram minimum severity" Target="TELEGRAM_MIN_SEVERITY" Default="info" Mode="" Description="info, warning or critical" Type="Variable" Display="advanced" Required="false" Mask="false">info</Config>
-  <Config Name="SMTP host" Target="SMTP_HOST" Default="" Mode="" Description="e.g. smtp.gmail.com" Type="Variable" Display="always" Required="false" Mask="false"></Config>
-  <Config Name="SMTP port" Target="SMTP_PORT" Default="587" Mode="" Description="" Type="Variable" Display="always" Required="false" Mask="false">587</Config>
-  <Config Name="SMTP security" Target="SMTP_SECURITY" Default="starttls" Mode="" Description="starttls, ssl or none" Type="Variable" Display="advanced" Required="false" Mask="false">starttls</Config>
-  <Config Name="SMTP user" Target="SMTP_USER" Default="" Mode="" Description="" Type="Variable" Display="always" Required="false" Mask="false"></Config>
-  <Config Name="SMTP password" Target="SMTP_PASSWORD" Default="" Mode="" Description="Gmail: use an App Password" Type="Variable" Display="always" Required="false" Mask="true"></Config>
-  <Config Name="Email from" Target="EMAIL_FROM" Default="" Mode="" Description="" Type="Variable" Display="always" Required="false" Mask="false"></Config>
-  <Config Name="Email to" Target="EMAIL_TO" Default="" Mode="" Description="Comma separated" Type="Variable" Display="always" Required="false" Mask="false"></Config>
-  <Config Name="Email minimum severity" Target="EMAIL_MIN_SEVERITY" Default="warning" Mode="" Description="info, warning or critical" Type="Variable" Display="advanced" Required="false" Mask="false">warning</Config>
-  <Config Name="CrowdSec bouncer key" Target="CROWDSEC_BOUNCER_KEY" Default="" Mode="" Description="cscli bouncers add notifyarr" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
 </Container>
