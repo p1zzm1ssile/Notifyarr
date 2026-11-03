@@ -1604,10 +1604,8 @@ def unraid_tasks_loop():
                 alert(("array", md), "unraid", "warning", f"Array state is {md}",
                       f"The array changed from {st['md_state']} to {md}.")
             st["md_state"] = md or st["md_state"]
-            dis = int(v.get("mdNumDisabled", "0") or 0)
-            if dis:
-                alert(("array", "disabled"), "disk", "critical", f"{dis} array disk(s) disabled",
-                      "One or more disks are disabled (red X). Data is being emulated until it is rebuilt.")
+            # Note: var.ini's mdNumDisabled also counts EMPTY parity slots, so an array without parity
+            # would look like it has disabled disks. Disabled disks are detected per disk from disks.ini.
         # ---- disks
         try:
             _, disks = parse_ini(disks_ini)
@@ -1624,6 +1622,11 @@ def unraid_tasks_loop():
             st["disk_status"][dname] = status
             errs = int(d.get("numErrors", "0") or 0)
             perr = st["disk_errors"].get(dname)
+            if perr is None and errs > 0:
+                alert(("diskerr-base", dname), "disk", "warning", f"Disk {dname} shows {errs} read/write error(s)",
+                      f"Device: {d.get('id', '?')}\nUnraid's error counter for this disk is {errs} (it resets at "
+                      "reboot). Check its SMART report and the cable/port. You'll be alerted if it rises.",
+                      remind=24 * 7)
             if perr is not None and errs > perr:
                 alert(("diskerr", dname, errs), "disk", "critical", f"Disk {dname} has {errs} read/write error(s)",
                       f"Device: {d.get('id', '?')}\nErrors went from {perr} to {errs}. Check SMART and cabling.")
@@ -2345,7 +2348,17 @@ def smart_loop():
             if d["hours"] and d["hours"] >= sm["hours_warn"]:
                 alert(("age", n), "disk", "info", f"Disk {label} has run {d['hours'] / 8766:.1f} years",
                       f"Power-on hours: {d['hours']:.0f}. Older disks fail more often; keep an eye on it.")
-            pb = prev_bad.get(n, {})
+            pb = prev_bad.get(n)
+            if pb is None:  # first time we see this disk: report existing problems once, as a baseline
+                existing = {k: v for k, v in d["bad"].items() if v}
+                if existing:
+                    lines = "\n".join(f"{k}: {v}" for k, v in existing.items())
+                    sev = "info" if list(existing) == ["UDMA CRC errors (often a cable)"] else "warning"
+                    alert(("smart-base", n), "disk", sev, f"Disk {label} already has SMART errors",
+                          f"Found on the first check (not necessarily new):\n{lines}\n\n"
+                          "Notifyarr will alert you if these numbers go up. Run an extended SMART test "
+                          "(Main > click the disk > Self-Test) and keep your backups current.")
+                pb = d["bad"]
             grew = {k: v for k, v in d["bad"].items() if v > pb.get(k, 0)}
             if grew:
                 lines = "\n".join(f"{k}: {pb.get(k, 0)} -> {v}" for k, v in grew.items())
