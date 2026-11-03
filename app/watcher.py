@@ -53,6 +53,51 @@ def env(name, default=""):
     return os.environ.get(name, default).strip()
 
 
+# Settings made in the GUI (channels, passwords, keys) live in /config/settings.json, readable only by
+# the container's root user (mode 600). Environment variables still work and are used as a fallback.
+SETTINGS = {}
+SETTINGS_KEYS = ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_THREAD_ID", "TELEGRAM_MIN_SEVERITY",
+                 "SMTP_HOST", "SMTP_PORT", "SMTP_SECURITY", "SMTP_USER", "SMTP_PASSWORD", "EMAIL_FROM",
+                 "EMAIL_TO", "EMAIL_MIN_SEVERITY", "CROWDSEC_BOUNCER_KEY", "GUI_PASSWORD_HASH")
+SECRET_KEYS = ("TELEGRAM_BOT_TOKEN", "SMTP_PASSWORD", "CROWDSEC_BOUNCER_KEY", "GUI_PASSWORD_HASH")
+
+
+def settings_path():
+    return os.path.join(os.path.dirname(env("CONFIG_FILE", "/config/config.toml")), "settings.json")
+
+
+def load_settings():
+    SETTINGS.clear()
+    try:
+        with open(settings_path()) as f:
+            SETTINGS.update({k: v for k, v in json.load(f).items() if k in SETTINGS_KEYS})
+    except (OSError, ValueError):
+        pass
+
+
+def save_settings(updates):
+    load_settings()
+    for k, v in updates.items():
+        if k not in SETTINGS_KEYS:
+            continue
+        if v is None or v == "":
+            SETTINGS.pop(k, None)
+        else:
+            SETTINGS[k] = str(v)
+    p = settings_path()
+    tmp = p + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(SETTINGS, f, indent=1)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, p)
+
+
+def setting(name, default=""):
+    v = SETTINGS.get(name)
+    return str(v).strip() if v not in (None, "") else env(name, default)
+
+
 def load_config():
     path = env("CONFIG_FILE", "/config/config.toml")
     cfg = {}
@@ -83,6 +128,7 @@ CFG = {}
 def setup_config():
     global RAW
     RAW = load_config()
+    load_settings()
     g = RAW
     c = CFG
     c["host_label"] = g.get("host_label") or env("HOST_LABEL") or "docker"
@@ -153,7 +199,7 @@ def setup_config():
     c["cs"] = {
         "enabled": bool(cs.get("enabled", False)),
         "url": cs.get("url", "http://crowdsec:8080").rstrip("/"),
-        "key": env("CROWDSEC_BOUNCER_KEY"),
+        "key": setting("CROWDSEC_BOUNCER_KEY"),
         "poll": int(cs.get("poll_seconds", 30)),
         "origins": set(cs.get("origins", ["crowdsec", "cscli"])),
         "ban": cs.get("ban_severity", "info"),
@@ -316,20 +362,20 @@ def setup_config():
 
     c["docker_socket"] = env("DOCKER_SOCKET", "/var/run/docker.sock")
     c["docker_host"] = env("DOCKER_HOST", "")
-    c["tg_token"] = env("TELEGRAM_BOT_TOKEN")
+    c["tg_token"] = setting("TELEGRAM_BOT_TOKEN")
     c["tg_api"] = env("TELEGRAM_API_URL", "https://api.telegram.org").rstrip("/")
-    c["tg_chat"] = env("TELEGRAM_CHAT_ID")
-    c["tg_thread"] = env("TELEGRAM_THREAD_ID")
-    c["smtp_host"] = env("SMTP_HOST")
-    c["smtp_port"] = int(env("SMTP_PORT", "587"))
-    c["smtp_user"] = env("SMTP_USER")
-    c["smtp_pass"] = env("SMTP_PASSWORD")
-    c["smtp_security"] = env("SMTP_SECURITY", "starttls").lower()
-    c["email_from"] = env("EMAIL_FROM") or env("SMTP_USER")
-    c["email_to"] = [x.strip() for x in env("EMAIL_TO").split(",") if x.strip()]
-    c["email_min"] = env("EMAIL_MIN_SEVERITY", "info")
-    c["tg_min"] = env("TELEGRAM_MIN_SEVERITY", "info")
-    c["own_secrets"] = [c["tg_token"], c["smtp_pass"], env("CROWDSEC_BOUNCER_KEY"), env("GUI_PASSWORD")]
+    c["tg_chat"] = setting("TELEGRAM_CHAT_ID")
+    c["tg_thread"] = setting("TELEGRAM_THREAD_ID")
+    c["smtp_host"] = setting("SMTP_HOST")
+    c["smtp_port"] = int(setting("SMTP_PORT", "587"))
+    c["smtp_user"] = setting("SMTP_USER")
+    c["smtp_pass"] = setting("SMTP_PASSWORD")
+    c["smtp_security"] = setting("SMTP_SECURITY", "starttls").lower()
+    c["email_from"] = setting("EMAIL_FROM") or setting("SMTP_USER")
+    c["email_to"] = [x.strip() for x in setting("EMAIL_TO").split(",") if x.strip()]
+    c["email_min"] = setting("EMAIL_MIN_SEVERITY", "info")
+    c["tg_min"] = setting("TELEGRAM_MIN_SEVERITY", "info")
+    c["own_secrets"] = [c["tg_token"], c["smtp_pass"], setting("CROWDSEC_BOUNCER_KEY"), env("GUI_PASSWORD")]
     REMIND.update(load_state().get("remind", {}))
 
 

@@ -4,3 +4,4 @@ config/state.json
 config/seen_ips.json
 config/*.bak
 config/*.tmp
+config/settings.json
