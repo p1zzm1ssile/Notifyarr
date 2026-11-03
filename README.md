@@ -28,27 +28,30 @@ Notifyarr watches every container on the host (new ones too), the Unraid system 
 
 1. Install **Docker Compose Manager** from Community Apps.
 2. Copy this repository into `/mnt/user/appdata/notifyarr` (for example `git clone https://github.com/p1zzm1ssile/Notifyarr /mnt/user/appdata/notifyarr` from the Unraid terminal).
-3. Copy `.env.example` to `.env` and fill in Telegram and/or email, a `GUI_PASSWORD`, and your `TZ`.
-4. Add a new stack pointing at that folder and press **Compose Up**.
+3. Add a new stack pointing at that folder and press **Compose Up** (or run `docker compose up -d` in the folder).
 
 ### Option 2: Unraid template
 
-Copy `unraid/notifyarr.xml` to `/boot/config/plugins/dockerMan/templates-user/`, then go to **Docker > Add Container** and pick **Notifyarr**. Fill in the channels and the GUI password. The template uses the image `ghcr.io/p1zzm1ssile/notifyarr`, which is built by this repository's GitHub Action.
+Copy `unraid/notifyarr.xml` to `/boot/config/plugins/dockerMan/templates-user/`, then go to **Docker > Add Container**, pick **Notifyarr** and press **Apply**. The template uses the image `ghcr.io/p1zzm1ssile/notifyarr`, which is built by this repository's GitHub Action.
 
-Then open `http://<your-server>:8484` on your LAN, log in, and press **Send a test alert**.
+### First start
+
+Open `http://<your-server>:8484` on your LAN. Notifyarr asks you to create a password for the GUI, then takes you to **Notifications**, where you fill in Telegram and/or email and press **Save and send a test alert**. No files to edit.
+
+(If you'd rather use environment variables, see `.env.example`. Anything set in the GUI takes priority.)
 
 ### Setting up Telegram
 
 1. Message **@BotFather**, send `/newbot`, and copy the token.
 2. Send your new bot any message.
 3. Open `https://api.telegram.org/bot<TOKEN>/getUpdates` and copy `"chat":{"id": ...}`.
-4. Put both in `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`.
+4. Paste both into **Notifications > Telegram** in the GUI.
 
 Info alerts arrive silently, warnings and critical alerts make a sound. The bot only obeys the chat ID you configured.
 
 ### Setting up email
 
-Any SMTP server works. For Gmail use `smtp.gmail.com`, port `587`, `starttls`, and an **App Password** (Google account > Security > App passwords), not your normal password. `EMAIL_MIN_SEVERITY` lets you send only warnings and critical alerts by email while Telegram gets everything.
+Any SMTP server works. For Gmail use `smtp.gmail.com`, port `587`, `starttls`, and an **App Password** (Google account > Security > App passwords), not your normal password. Fill it in under **Notifications > Email**. You can choose to email only warnings and critical alerts while Telegram gets everything.
 
 ## Using it
 
@@ -102,7 +105,7 @@ Other bot commands: `/untrust`, `/trusted`, `/status`, `/hardware`.
 
 ### The web GUI
 
-Set `GUI_PASSWORD` (10+ characters) to turn it on. Pages: **Status**, **Alerts** (the last 500), **On / off** (a switch for every check and log rule), **Settings** (the full `config.toml`, checked before saving, with the old version kept as `config.toml.bak`), **Trusted IPs**, **Hardware** and **About**. Saving restarts Notifyarr to apply the change. The header has a **Light / Dark / Auto** switch (Auto follows your device).
+On by default (set `GUI_ENABLED=false` to turn it off). You create its password on first start. Pages: **Status**, **Notifications** (Telegram, email, CrowdSec key, password), **Alerts** (the last 500), **On / off** (a switch for every check and log rule), **Settings** (the full `config.toml`, checked before saving, with the old version kept as `config.toml.bak`), **Trusted IPs**, **Hardware** and **About**. Saving restarts Notifyarr to apply the change. The header has a **Light / Dark / Auto** switch (Auto follows your device).
 
 ![On / off page in dark mode](docs/gui-switches-dark.png)
 
@@ -140,11 +143,11 @@ Want to limit what the Docker socket can do? Put a socket proxy (for example `te
 
 ## Privacy and your credentials
 
-- Tokens and passwords live only in the container's environment (`.env` or the Unraid template), never in `config.toml`. The GUI shows only "set" or "not set".
+- Tokens and passwords you enter in the GUI are saved in `settings.json` in the appdata folder, readable only by root (mode 600). They're never shown again in the GUI, never written to `config.toml`, and the GUI password is stored only as a salted PBKDF2 hash. Note that anyone with root on the server can read that file. That's true of any app that has to send with your token, so keep the appdata share private.
 - Before anything is sent or stored, alert text is scrubbed of passwords, API keys, tokens, `user:pass@` in URLs, `Authorization` / `X-Api-Key` / Plex and Emby tokens, JWTs, private keys and long hex keys (the format the *arr apps use). Add your own patterns in `[privacy] extra_patterns`.
 - Set `[privacy] include_log_lines = false` to send only *what* matched, with no log text at all.
 - Notifyarr reads container details from Docker (which includes their environment variables) but never stores or sends them.
-- Files it writes, all in `/config`: `config.toml`, `trusted_ips.txt`, `seen_ips.json` (untrusted IPs already reported), `state.json` (last seen time, reminders, disk counters).
+- Files it writes, all in `/config`: `config.toml`, `settings.json`, `trusted_ips.txt`, `seen_ips.json` (untrusted IPs already reported), `state.json` (last seen time, reminders, disk counters).
 - Telegram commands are accepted only from your own chat ID.
 - The GUI: LAN-only, no proxies, password login with lock-out after 5 failures, HttpOnly SameSite cookies, CSRF tokens, strict Content-Security-Policy, and a security alert on every failed login.
 
