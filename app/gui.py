@@ -9,6 +9,7 @@ Security model
     lock-out after repeated failures, and a security alert for failed logins.
   * Secrets (.env) are never shown or written by the GUI; only "set / not set".
 """
+import hashlib
 import hmac
 import html
 import http.server
@@ -93,7 +94,7 @@ vertical-align:top}th{font-weight:600;color:var(--mut);font-size:13px}
 .sw input:checked+span{background:var(--acc)}.sw input:checked+span:before{transform:translateX(20px)}
 textarea{width:100%;min-height:60vh;font:13px/1.45 ui-monospace,Menlo,Consolas,monospace;background:var(--bg);
 color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:10px}
-input[type=password],input[type=text]{padding:9px 10px;border:1px solid var(--line);border-radius:8px;
+select,input[type=password],input[type=text]{padding:9px 10px;border:1px solid var(--line);border-radius:8px;
 background:var(--bg);color:var(--fg);width:100%}
 button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer}
 button.sec{background:transparent;color:var(--fg);border:1px solid var(--line)}
@@ -150,6 +151,64 @@ def set_rule_enabled(text, idx, value):
     return text[:m.start(1)] + body + text[m.end(1):]
 
 
+# --------------------------------------------------------------------------- password
+def hash_password(pw):
+    salt = secrets.token_bytes(16)
+    it = 310_000
+    h = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, it)
+    return f"pbkdf2_sha256${it}${salt.hex()}${h.hex()}"
+
+
+def password_set():
+    return bool(W.setting("GUI_PASSWORD_HASH") or W.env("GUI_PASSWORD"))
+
+
+def check_password(pw):
+    stored = W.setting("GUI_PASSWORD_HASH")
+    if stored:
+        try:
+            _, it, salt, h = stored.split("$")
+            calc = hashlib.pbkdf2_hmac("sha256", pw.encode(), bytes.fromhex(salt), int(it)).hex()
+            return hmac.compare_digest(calc, h)
+        except ValueError:
+            return False
+    envpw = W.env("GUI_PASSWORD")
+    return bool(envpw) and hmac.compare_digest(pw.encode(), envpw.encode())
+
+
+def new_session():
+    tok, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(24)
+    SESSIONS[tok] = (csrf, time.time() + SESSION_TTL)
+    return f"nsid={tok}; Max-Age={SESSION_TTL}; Path=/; HttpOnly; SameSite=Strict"
+
+
+# Fields on the Notifications page: (key, label, kind, help)
+CHANNEL_FIELDS = [
+    ("Telegram", [
+        ("TELEGRAM_BOT_TOKEN", "Bot token", "secret", "From @BotFather (/newbot)."),
+        ("TELEGRAM_CHAT_ID", "Chat ID", "text", "Message your bot, then open api.telegram.org/bot<token>/getUpdates "
+                                                 "and copy chat > id."),
+        ("TELEGRAM_THREAD_ID", "Topic ID (optional)", "text", "Only for a group with topics."),
+        ("TELEGRAM_MIN_SEVERITY", "Send", "severity", ""),
+    ]),
+    ("Email", [
+        ("SMTP_HOST", "SMTP server", "text", "e.g. smtp.gmail.com"),
+        ("SMTP_PORT", "Port", "text", "587 for STARTTLS, 465 for SSL."),
+        ("SMTP_SECURITY", "Security", "security", ""),
+        ("SMTP_USER", "Username", "text", ""),
+        ("SMTP_PASSWORD", "Password", "secret", "Gmail: use an App Password, not your normal one."),
+        ("EMAIL_FROM", "From address", "text", "Defaults to the username."),
+        ("EMAIL_TO", "Send to", "text", "One or more addresses, comma separated."),
+        ("EMAIL_MIN_SEVERITY", "Send", "severity", ""),
+    ]),
+    ("CrowdSec (optional)", [
+        ("CROWDSEC_BOUNCER_KEY", "Bouncer key", "secret", "On the CrowdSec container: cscli bouncers add notifyarr"),
+    ]),
+]
+SEV_CHOICES = (("info", "Everything (info and up)"), ("warning", "Warnings and critical"), ("critical", "Critical only"))
+SEC_CHOICES = (("starttls", "STARTTLS"), ("ssl", "SSL / TLS"), ("none", "None"))
+
+
 # --------------------------------------------------------------------------- helpers
 def cfg_path():
     return W.env("CONFIG_FILE", "/config/config.toml")
@@ -192,7 +251,7 @@ THEMES = (("auto", "Auto"), ("light", "Light"), ("dark", "Dark"))
 def page(title, body, tab="", csrf="", flash=None, theme="auto"):
     nav = ""
     if csrf:
-        links = [("/", "Status"), ("/alerts", "Alerts"), ("/switches", "On / off"), ("/settings", "Settings"),
+        links = [("/", "Status"), ("/notifications", "Notifications"), ("/alerts", "Alerts"), ("/switches", "On / off"), ("/settings", "Settings"),
                  ("/ips", "Trusted IPs"), ("/hardware", "Hardware"), ("/about", "About")]
         nav = "".join(f'<a href="{u}" class="{"on" if tab == u else ""}">{t}</a>' for u, t in links)
         nav += (f'<form method="post" action="/theme" class="theme" style="margin-left:auto">'
@@ -291,6 +350,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not self.allowed():
             return
         path = urllib.parse.urlparse(self.path).path
+        if not password_set():
+            return self.html(self.setup_page())
         s = self.session()
         if not s:
             return self.html(self.login_page())
@@ -303,7 +364,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             flash = (False, q["err"][0])
         routes = {"/": self.p_status, "/alerts": self.p_alerts, "/switches": self.p_switches,
                   "/settings": self.p_settings, "/ips": self.p_ips, "/hardware": self.p_hardware,
-                  "/about": self.p_about}
+                  "/about": self.p_about, "/notifications": self.p_notifications}
         fn = routes.get(path)
         if not fn:
             return self.plain(404, "Not found")
@@ -315,6 +376,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         path = urllib.parse.urlparse(self.path).path
         f = self.form()
+        if path == "/setup":
+            return self.do_setup(f)
         if path == "/login":
             return self.do_login(f)
         s = self.session()
@@ -354,6 +417,35 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if path == "/ips/remove":
                 W.TRUST.remove(f.get("ip", ""))
                 return self.redirect("/ips?ok=Removed")
+            if path == "/notifications":
+                updates = {}
+                for _, fields in CHANNEL_FIELDS:
+                    for key, _, kind, _ in fields:
+                        if kind == "secret":
+                            if f.get(f"clear.{key}") == "on":
+                                updates[key] = ""
+                            elif f.get(key, "").strip():
+                                updates[key] = f[key].strip()
+                        else:
+                            updates[key] = f.get(key, "").strip()
+                if updates.get("SMTP_PORT") and not updates["SMTP_PORT"].isdigit():
+                    return self.redirect("/notifications?err=The+SMTP+port+must+be+a+number.")
+                W.save_settings(updates)
+                if f.get("test") == "1":
+                    W.setup_config()
+                    W.deliver("🧪 Test alert", "If you can read this, Notifyarr can reach you.", "warning")
+                restart_soon()
+                msg = "Saved and test sent" if f.get("test") == "1" else "Saved"
+                return self.redirect(f"/notifications?ok={msg}.+Notifyarr+is+restarting+to+apply+it.")
+            if path == "/password":
+                if not check_password(f.get("current", "")):
+                    return self.redirect("/notifications?err=Current+password+is+wrong.")
+                err = self.password_problem(f.get("new", ""), f.get("new2", ""))
+                if err:
+                    return self.redirect("/notifications?err=" + urllib.parse.quote(err))
+                W.save_settings({"GUI_PASSWORD_HASH": hash_password(f["new"])})
+                SESSIONS.clear()
+                return self.redirect("/", cookie=new_session())
             if path == "/test":
                 threading.Thread(target=W.deliver, args=(
                     "🧪 Test alert", "If you can read this, Notifyarr can reach you.", "warning"), daemon=True).start()
@@ -368,17 +460,46 @@ class Handler(http.server.BaseHTTPRequestHandler):
         cnt, first = FAILS.get(ip, [0, time.time()])
         if cnt >= 5 and time.time() - first < 900:
             return self.html(self.login_page("Too many attempts. Try again in 15 minutes."), 429)
-        if hmac.compare_digest(f.get("password", "").encode(), W.env("GUI_PASSWORD").encode()):
+        if check_password(f.get("password", "")):
             FAILS.pop(ip, None)
-            tok, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(24)
-            SESSIONS[tok] = (csrf, time.time() + SESSION_TTL)
-            return self.redirect("/", cookie=f"nsid={tok}; Max-Age={SESSION_TTL}; Path=/; HttpOnly; SameSite=Strict")
+            return self.redirect("/", cookie=new_session())
         if time.time() - first > 900:
             cnt, first = 0, time.time()
         FAILS[ip] = [cnt + 1, first]
         W.alert(("gui-login", ip), "security", "warning", f"Failed Notifyarr GUI login from {ip}",
                 f"Wrong password entered for the Notifyarr GUI from {ip} ({cnt + 1} attempt(s)).")
         return self.html(self.login_page("Wrong password."), 401)
+
+    @staticmethod
+    def password_problem(pw, pw2):
+        if len(pw) < 10:
+            return "Use at least 10 characters."
+        if pw != pw2:
+            return "The two passwords don't match."
+        return ""
+
+    def do_setup(self, f):
+        if password_set():  # setup can only run once
+            return self.redirect("/")
+        err = self.password_problem(f.get("password", ""), f.get("password2", ""))
+        if err:
+            return self.html(self.setup_page(err), 400)
+        W.save_settings({"GUI_PASSWORD_HASH": hash_password(f["password"])})
+        W.alert(("gui-setup", time.time()), "security", "info", "Notifyarr GUI password created",
+                f"The admin password was set from {self.client_address[0]}.")
+        return self.redirect("/notifications?ok=Password+saved.+Now+set+up+where+alerts+should+go.",
+                             cookie=new_session())
+
+    def setup_page(self, err=""):
+        e = f'<div class="msg err">{esc(err)}</div>' if err else ""
+        return page("Welcome", theme=self.theme(), body=(
+            f'<div class="card login"><h2>Welcome to Notifyarr</h2>{e}'
+            f'<p class="mut">First, create the password for this page. You\'ll set up Telegram and email next.</p>'
+            f'<form method="post" action="/setup">'
+            f'<p><input type="password" name="password" placeholder="New password (10+ characters)" '
+            f'autocomplete="new-password" autofocus required minlength="10"></p>'
+            f'<p><input type="password" name="password2" placeholder="Type it again" autocomplete="new-password" '
+            f'required minlength="10"></p><button>Create password</button></form></div>'))
 
     # ---- pages
     def login_page(self, err=""):
@@ -466,11 +587,52 @@ class Handler(http.server.BaseHTTPRequestHandler):
         out.append('</div></div><button>Save and apply</button></form>')
         return "On / off", "".join(out)
 
+    def p_notifications(self, csrf):
+        out = [f'<form method="post" action="/notifications"><input type="hidden" name="csrf" value="{csrf}">'
+               f'<div class="grid">']
+        for group, fields in CHANNEL_FIELDS:
+            out.append(f'<div class="card"><h2>{esc(group)}</h2>')
+            for key, label, kind, hlp in fields:
+                cur = W.setting(key)
+                out.append(f'<p><label><b>{esc(label)}</b><br>')
+                if kind == "secret":
+                    ph = "Saved. Leave blank to keep it." if cur else "Not set"
+                    out.append(f'<input type="password" name="{key}" placeholder="{ph}" autocomplete="off">')
+                    if cur:
+                        out.append(f'</label><label class="mut"><input type="checkbox" name="clear.{key}"> Remove it')
+                elif kind in ("severity", "security"):
+                    choices = SEV_CHOICES if kind == "severity" else SEC_CHOICES
+                    default = {"EMAIL_MIN_SEVERITY": "warning", "SMTP_SECURITY": "starttls"}.get(key, "info")
+                    sel = cur or default
+                    out.append(f'<select name="{key}">' + "".join(
+                        f'<option value="{v}" {"selected" if v == sel else ""}>{t}</option>' for v, t in choices)
+                        + '</select>')
+                else:
+                    out.append(f'<input type="text" name="{key}" value="{esc(cur)}">')
+                out.append('</label>')
+                if hlp:
+                    out.append(f'<br><span class="mut" style="font-size:13px">{esc(hlp)}</span>')
+                out.append('</p>')
+            out.append('</div>')
+        out.append('</div><p style="display:flex;gap:10px;flex-wrap:wrap"><button>Save</button>'
+                   '<button name="test" value="1" class="sec">Save and send a test alert</button></p></form>')
+        out.append(f'<div class="card"><h2>Change the GUI password</h2><form method="post" action="/password" '
+                   f'class="grid"><input type="hidden" name="csrf" value="{csrf}">'
+                   f'<input type="password" name="current" placeholder="Current password" autocomplete="current-password" required>'
+                   f'<input type="password" name="new" placeholder="New password (10+)" autocomplete="new-password" required>'
+                   f'<input type="password" name="new2" placeholder="New password again" autocomplete="new-password" required>'
+                   f'<button>Change password</button></form></div>')
+        out.append('<div class="card mut">Passwords, tokens and keys are saved in <code>settings.json</code> in your '
+                   'Notifyarr appdata folder, readable only by root (file mode 600). They are never shown again '
+                   'here, never written to config.toml, and are masked out of every alert. The GUI password is '
+                   'stored only as a salted PBKDF2 hash.</div>')
+        return "Notifications", "".join(out)
+
     def p_settings(self, csrf):
         env_rows = "".join(
-            f"<tr><td>{k}</td><td>{'set' if W.env(k) else '<span class=mut>not set</span>'}</td></tr>"
+            f"<tr><td>{k}</td><td>{'set' if W.setting(k) else '<span class=mut>not set</span>'}</td></tr>"
             for k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD",
-                      "EMAIL_TO", "CROWDSEC_BOUNCER_KEY", "GUI_PASSWORD"))
+                      "EMAIL_TO", "CROWDSEC_BOUNCER_KEY"))
         return "Settings", (
             f'<div class="card"><h2>config.toml</h2><p class="mut">Thresholds, quiet hours, ignore rules, excluded '
             f'containers and every other option live here. It is checked before saving, the previous version is '
@@ -478,8 +640,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             f'<form method="post" action="/settings"><input type="hidden" name="csrf" value="{csrf}">'
             f'<textarea name="config" spellcheck="false">{esc(read_cfg_text())}</textarea>'
             f'<p><button>Save and apply</button></p></form></div>'
-            f'<div class="card"><h2>Secrets</h2><p class="mut">Tokens and passwords are kept in the container\'s '
-            f'environment (.env or the Unraid template), never in config.toml, and the GUI never shows them.</p>'
+            f'<div class="card"><h2>Channels and keys</h2><p class="mut">Set these on the '
+            f'<a href="/notifications">Notifications</a> page. They are never stored in config.toml or shown here.</p>'
             f'<table>{env_rows}</table></div>')
 
     def p_ips(self, csrf):
@@ -525,14 +687,15 @@ assistive tool to write the code from that design. I test changes against my own
 def start(watcher_module):
     global W
     W = watcher_module
-    if not W.env("GUI_PASSWORD"):
-        W.log.info("GUI disabled (set GUI_PASSWORD to enable it)")
+    if W.env("GUI_ENABLED", "true").lower() in ("false", "0", "no"):
+        W.log.info("GUI disabled (GUI_ENABLED=false)")
         return
-    if len(W.env("GUI_PASSWORD")) < 10:
+    if W.env("GUI_PASSWORD") and len(W.env("GUI_PASSWORD")) < 10:
         W.log.warning("GUI_PASSWORD is shorter than 10 characters; GUI disabled until you choose a longer one")
         return
     port = int(W.env("GUI_PORT", "8484"))
     srv = http.server.ThreadingHTTPServer(("0.0.0.0", port), Handler)
     srv.daemon_threads = True
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    W.log.info("GUI listening on port %d (LAN only)", port)
+    W.log.info("GUI listening on port %d (LAN only)%s", port,
+               "" if password_set() else ": open it to create your password")

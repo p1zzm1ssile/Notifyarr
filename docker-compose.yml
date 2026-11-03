@@ -7,18 +7,23 @@
 #   * Never expose Notifyarr to the internet: no port forward, no reverse-proxy host.
 #     The GUI port below is for your LAN only, and the GUI refuses proxied and non-LAN clients.
 #   * Every host path is mounted read-only. Only ./config is writable (settings, trusted IPs, state).
-#   * Secrets live in .env, never in config.toml, and are masked out of every alert.
+#   * Telegram, email and the GUI password are set in the web GUI (stored in ./config/settings.json,
+#     mode 600). They are never written to config.toml and are masked out of every alert.
 services:
   notifyarr:
     image: python:3.13-alpine
     container_name: notifyarr
     restart: unless-stopped
     command: ["python", "-u", "/app/watcher.py"]
-    env_file: .env
     environment:
       - CONFIG_FILE=/config/config.toml
+      # Optional: everything below can be set in the GUI instead. Uncomment only if you prefer env vars.
+      # - TELEGRAM_BOT_TOKEN=
+      # - TELEGRAM_CHAT_ID=
+      # - SMTP_HOST=
+      # - GUI_ENABLED=false            # turn the web GUI off
     ports:
-      - "8484:8484"                                 # web GUI (LAN only). Remove to disable it.
+      - "8484:8484"                                 # web GUI (LAN only)
     volumes:
       - ./app:/app:ro
       - ./config:/config
