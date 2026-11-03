@@ -1,0 +1,54 @@
+# Notifyarr: alerts for Docker containers and your Unraid server, via Telegram and/or email.
+#
+# On Unraid: copy this folder to /mnt/user/appdata/notifyarr and start it with the
+# "Docker Compose Manager" plugin, or `docker compose up -d` from that folder.
+#
+# SECURITY
+#   * Never expose Notifyarr to the internet: no port forward, no reverse-proxy host.
+#     The GUI port below is for your LAN only, and the GUI refuses proxied and non-LAN clients.
+#   * Every host path is mounted read-only. Only ./config is writable (settings, trusted IPs, state).
+#   * Secrets live in .env, never in config.toml, and are masked out of every alert.
+services:
+  notifyarr:
+    image: python:3.13-alpine
+    container_name: notifyarr
+    restart: unless-stopped
+    command: ["python", "-u", "/app/watcher.py"]
+    env_file: .env
+    environment:
+      - CONFIG_FILE=/config/config.toml
+    ports:
+      - "8484:8484"                                 # web GUI (LAN only). Remove to disable it.
+    volumes:
+      - ./app:/app:ro
+      - ./config:/config
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /etc/localtime:/etc/localtime:ro            # quiet hours use host time
+      # ---- Unraid host (remove these if you're not on Unraid)
+      - /var/log:/host/log:ro                       # syslog + /var/log free space
+      - /tmp/notifications:/host/notifications:ro   # Unraid notifications
+      - /var/local/emhttp:/host/emhttp:ro           # array, parity, disks, SMART
+      - /var/run:/host/run:ro                       # mover.pid
+      - /mnt:/host/mnt:ro,rslave                    # free space of array and pools (nothing is read)
+      - /var/lib/docker/containers:/host/docker-containers:ro   # docker.img space, container log sizes
+    labels:
+      - notifyarr.enable=false                      # don't watch itself
+    mem_limit: 192m
+    security_opt:
+      - no-new-privileges:true
+
+    # ---- Optional: WireGuard handshake checks (Unraid VPN Manager). Use instead of the above:
+    # network_mode: host        # then remove `ports:`; the GUI is on <server-ip>:8484
+    # cap_add: [NET_ADMIN]
+    # command: ["sh", "-c", "apk add --no-cache -q wireguard-tools-wg && exec python -u /app/watcher.py"]
+
+    # ---- Optional: CMOS battery voltage via IPMI (server boards with a BMC only):
+    # devices: ["/dev/ipmi0:/dev/ipmi0"]
+    # command: ["sh", "-c", "apk add --no-cache -q ipmitool && exec python -u /app/watcher.py"]
+
+    # ---- Optional: reach CrowdSec by container name
+    # networks: [proxynet]
+
+# networks:
+#   proxynet:
+#     external: true

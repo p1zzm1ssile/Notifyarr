@@ -1,0 +1,365 @@
+# notifyarr configuration
+# Edit this file, then restart the container. (trusted_ips.txt is reloaded automatically.)
+# Severities: "off", "info" (silent Telegram push), "warning", "critical".
+
+host_label = "Unraid"        # shown at the start of every alert
+cooldown_seconds = 300       # the same alert won't repeat more often than this
+remind_hours = 24            # ongoing problems (disk full, old battery ...) are re-sent at most this often
+startup_message = true
+
+# ----------------------------------------------------------------------------- which containers
+# Every container on the host is watched automatically, including new ones.
+# Leave containers out here, or put the label  notifyarr.enable=false  on them.
+[containers]
+exclude = []                 # e.g. ["watchtower", "speedtest-tracker"]
+include = []                 # if not empty, ONLY these are watched
+
+# ----------------------------------------------------------------------------- container events
+[events]
+enabled = true
+crash = "critical"           # exited with a non-zero code
+oom = "critical"             # killed for running out of memory
+restart_loop = "critical"
+restart_loop_count = 3       # starts ...
+restart_loop_window_minutes = 10   # ... within this many minutes
+unhealthy = "warning"
+recovered = "info"           # unhealthy -> healthy again
+clean_exit = "off"           # exited with code 0 (set "info" to hear about it)
+
+# ----------------------------------------------------------------------------- container logs
+[logs]
+enabled = true
+batch_seconds = 10           # matching lines within this window are sent as one alert
+max_lines = 10
+
+# ----------------------------------------------------------------------------- do not disturb
+[quiet_hours]
+enabled = true
+start = "23:00"
+end = "07:00"
+days = []                    # empty = every night; or e.g. ["mon","tue","wed","thu","sun"]
+allow = "critical"           # this severity and above still gets through
+digest = true                # send a summary of what was held back when quiet hours end
+
+# ----------------------------------------------------------------------------- trusted IPs
+# Addresses here never trigger "unrecognised IP" alerts, and a CrowdSec ban on one of them
+# is reported as a faulty ban. You can also add entries from Telegram with /trust 1.2.3.4
+# (saved to trusted_ips.txt next to this file, one IP or CIDR range per line).
+[ips]
+trusted = [
+  "127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",   # LAN + Docker
+  "100.64.0.0/10",                                                    # Tailscale
+  "::1/128", "fc00::/7", "fe80::/10",
+  # "203.0.113.45",          # e.g. your work IP
+]
+trusted_file = "/config/trusted_ips.txt"
+seen_file = "/config/seen_ips.json"
+
+[telegram]
+commands = true              # /trust /untrust /trusted /status, and "Trust" buttons on alerts
+
+# ----------------------------------------------------------------------------- Unraid host
+[host]
+name = "unraid"                              # source name used by rules below
+syslog = true
+syslog_path = "/host/log/syslog"             # /var/log is mounted at /host/log
+unraid_notifications = true                  # array, SMART, parity, temps, etc.
+notifications_path = "/host/notifications"   # mount /tmp/notifications here
+unraid_alert = "critical"
+unraid_warning = "warning"
+unraid_normal = "info"
+
+# Space on the array, every pool (cache etc.), docker.img and Unraid's /var/log RAM disk
+[storage]
+enabled = true
+warn_percent = 85
+critical_percent = 95
+check_minutes = 15
+array = "/host/mnt/user"
+auto_pools = true                     # finds cache and other pools under /mnt by itself
+mnt_path = "/host/mnt"
+docker_dir = "/host/docker-containers"  # inside docker.img; used for its free space and log sizes
+log_dir = "/host/log"
+log_warn_percent = 75
+container_log_mb = 500                # warn when one container's Docker log passes this (0 = off)
+paths = {}                            # extra: { "Backups share" = "/host/mnt/user/backups" }
+
+# SMART: SSD life left, failing disks, growing bad-sector counts, very old disks
+[disk_health]
+enabled = true
+smart_path = "/host/emhttp/smart"
+check_hours = 6
+ssd_life_warn_percent = 20
+ssd_life_critical_percent = 10
+hdd_age_warn_years = 6
+
+# UPS: power cuts, low battery, and battery health (replace flag, self-test, age, not charging)
+# Unraid: Settings > UPS Settings, set "Start APC UPS daemon" Yes and enable the Network
+# Information Server. From a bridge-network container the host is usually 172.17.0.1.
+[ups]
+enabled = false
+type = "apcupsd"                      # apcupsd (Unraid built-in) or nut
+host = "172.17.0.1"
+port = 3551                           # 3493 for NUT
+ups_name = "ups"                      # NUT only
+check_seconds = 30
+on_battery_severity = "critical"
+low_battery_severity = "critical"
+battery_health_severity = "warning"
+battery_max_age_years = 3
+min_charge_percent = 90
+min_runtime_minutes = 5
+
+# Backups: alerts if the newest file in a backup folder is too old
+[backups]
+enabled = false
+check_hours = 1
+severity = "warning"
+checks = [
+  # { name = "Appdata", path = "/host/mnt/user/backups/appdata", max_age_hours = 26 },
+  # { name = "Flash",   path = "/host/mnt/user/backups/flash",   max_age_hours = 170 },
+]
+
+# Hardware: board/BIOS/disk firmware report with the vendor's update steps (Telegram /hardware or the
+# GUI), BIOS age reminder, CMOS battery hint (clock reset at boot), and IPMI VBAT if you have a BMC.
+[hardware]
+enabled = true
+check_hours = 24
+bios_age_years = 2
+cmos_check = true
+ipmi = false                          # needs /dev/ipmi0 passed through (see docker-compose.yml)
+vbat_min_volts = 2.8
+severity = "info"
+
+# Leftovers and unusual growth (report only, Notifyarr never deletes anything):
+# unused images, orphaned volumes, long-stopped containers, appdata folders no container uses,
+# data piling up inside docker.img, and appdata folders growing unusually fast.
+[cleanup]
+enabled = true
+check_hours = 24
+severity = "info"
+unused_images_min_mb = 500
+stopped_days = 30
+writable_layer_gb = 10
+appdata_path = "/host/mnt/user/appdata"
+appdata_host_prefixes = ["/mnt/user/appdata", "/mnt/cache/appdata"]
+appdata_ignore = []                   # folders to never report, e.g. ["backups", "scripts"]
+growth_gb_per_day = 20
+size_seconds_per_folder = 20          # time limit when measuring one folder
+
+# Privacy: masks passwords, tokens and API keys before anything is sent or stored
+[privacy]
+redact_secrets = true
+include_log_lines = true              # false = alerts say WHAT matched, without the log text
+extra_patterns = []                   # your own regexes to mask, e.g. ['MyHomeWifi\w*']
+
+# Mover, parity / read checks, rebuilds, array and disk health
+[unraid_tasks]
+enabled = true
+emhttp_path = "/host/emhttp"          # mount /var/local/emhttp here
+mover_pid = "/host/run/mover.pid"     # mount /var/run here
+parity_check_max_hours = 24           # warn if a check runs longer than this
+read_check_max_hours = 24
+rebuild_max_hours = 36
+mover_max_hours = 6
+stall_minutes = 30                    # critical if a check makes no progress this long (not paused)
+start_severity = "info"
+finish_severity = "info"              # finishing WITH errors is always critical
+mover_finish_severity = "off"
+check_seconds = 60
+disk_temp_critical = 55
+
+# WireGuard tunnels (Unraid VPN Manager)
+[wireguard]
+enabled = false
+check_minutes = 2
+severity = "warning"
+# Ping something on the far side of each tunnel:  "label=ip"
+ping = []                             # e.g. ["Office=10.10.0.1", "Parents NAS=10.253.0.3"]
+# Handshake ages need network_mode: host + cap NET_ADMIN (see docker-compose.yml)
+check_handshakes = false
+max_handshake_minutes = 5
+peers = {}                            # label = peer tunnel IP or public key prefix,
+                                      # e.g. { "Office" = "10.253.0.2", "Phone" = "aBcD12" }
+
+# Per-container CPU / RAM / disk limits. 0 = off. Values here apply to every container;
+# override per container below, or with labels on the container itself, e.g.
+#   notifyarr.cpu_percent=300   notifyarr.memory_mb=4096   notifyarr.disk_io_mbps=200
+[resources]
+enabled = true
+check_seconds = 60
+for_minutes = 5             # must stay over the limit this long (ignores short spikes)
+severity = "warning"
+cpu_percent = 0             # like `docker stats`: 100 = one full core
+memory_mb = 0
+memory_percent = 90         # of the container's memory limit, if it has one
+disk_io_mbps = 0            # read + write
+disk_size_gb = 0            # the container's own writable layer (not mapped appdata)
+disk_size_check_minutes = 30
+
+[resources.containers.plex]
+cpu_percent = 400
+memory_mb = 4096
+
+# [resources.containers.qbittorrent]
+# disk_io_mbps = 300
+# severity = "info"
+
+# Restarts and power cuts. Notifyarr remembers when it last saw the server; after a boot
+# it tells you whether the shutdown was clean and how long the server was down.
+[reboot]
+enabled = true
+state_file = "/config/state.json"
+clean_severity = "info"
+unclean_severity = "critical"
+
+# Internet connection. Alerts that can't be sent while offline are queued and sent later.
+[internet]
+enabled = true
+check_seconds = 60
+fail_count = 3              # consecutive failures before it counts as down
+targets = ["1.1.1.1:443", "8.8.8.8:53", "9.9.9.9:443"]
+severity = "warning"
+
+# Web checks: anything that should answer over HTTP(S), e.g. Unraid Connect remote access.
+http_check_minutes = 5
+
+# [[http_checks]]
+# name = "Unraid Connect"
+# url = "https://connect.myunraid.net"
+#
+# [[http_checks]]
+# name = "Unraid remote access"
+# url = "https://<your-hash>.myunraid.net:<port>/login"
+# severity = "critical"
+#
+# [[http_checks]]
+# name = "Jellyfin"
+# url = "http://192.168.1.10:8096/health"
+# expect_status = [200]
+
+# ----------------------------------------------------------------------------- extras
+[updates]
+enabled = true               # new image available for a running container
+check_hours = 24
+severity = "info"
+exclude = []
+
+[certs]
+enabled = false
+hosts = []                   # e.g. ["jellyfin.example.com", "auth.example.com:443"]
+warn_days = 14
+critical_days = 3
+check_hours = 12
+
+[heartbeat]
+enabled = true               # daily "all OK" summary
+time = "09:00"
+
+# ----------------------------------------------------------------------------- CrowdSec
+# On the CrowdSec container run:  cscli bouncers add notifyarr
+# and put the key in CROWDSEC_BOUNCER_KEY. Community blocklists are ignored (too noisy).
+[crowdsec]
+enabled = false
+url = "http://crowdsec:8080"
+poll_seconds = 30
+origins = ["crowdsec", "cscli"]       # local detections and manual bans
+ban_severity = "info"
+geoblock_severity = "info"
+faulty_ban_severity = "critical"      # ban on a trusted IP
+ignore_scenarios = []                 # e.g. ['crowdsecurity/http-probing']
+geoblock_scenarios = '(?i)geo|country'
+
+# ----------------------------------------------------------------------------- log rules
+# Each log line is checked against these. The highest-severity matching rule wins.
+#   sources / exclude_sources: container names (or "unraid" for the host syslog)
+#   ip = "any"       always alert
+#   ip = "untrusted" only when the line has an IP that isn't trusted
+#   ip = "new"       only the FIRST time an untrusted IP is seen
+
+[[rules]]
+name = "Fatal error"
+pattern = '(?i)\b(fatal|panic|emerg(ency)?)\b'
+severity = "critical"
+category = "error"
+exclude_sources = ["unraid"]
+
+[[rules]]
+name = "Error"
+pattern = '(?i)\b(error|exception|traceback)\b'
+severity = "warning"
+category = "error"
+exclude_sources = ["unraid"]
+
+[[rules]]
+name = "Malware detected"
+pattern = '(?i)(\bFOUND$|malware|virus (found|detected)|trojan|ransomware|crypto ?miner|coinminer|xmrig)'
+severity = "critical"
+category = "malware"
+
+[[rules]]
+name = "Possible breach"
+pattern = '(?i)(privilege escalation|reverse shell|webshell|/etc/shadow|(curl|wget)[^|]*\|\s*(ba)?sh|\bnc\s+-e\b|base64\s+-d[^|]*\|\s*(ba)?sh)'
+severity = "critical"
+category = "breach"
+
+[[rules]]
+name = "Login from unrecognised IP"
+pattern = '(?i)((?<!un)successful login|accepted (password|publickey|keyboard-interactive)|login succe(ss|eded)|logged in|authenticated successfully)'
+severity = "critical"
+category = "breach"
+ip = "untrusted"
+
+[[rules]]
+name = "Failed / unauthorised login"
+pattern = '(?i)(unsuccessful login|failed password|invalid user|authentication fail(ed|ure)|login fail(ed|ure)|invalid (username|password|credentials)|wrong password|unauthori[sz]ed)'
+severity = "warning"
+category = "security"
+
+[[rules]]
+name = "Access from new external IP"
+# Put your reverse proxy container names here. Alerts once per never-seen, untrusted IP.
+pattern = '"?(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) /'
+severity = "warning"
+category = "security"
+ip = "new"
+sources = ["swag", "nginx-proxy-manager", "npm", "traefik", "caddy"]
+
+[[rules]]
+name = "Backup failed"
+pattern = '(?i)(backup.{0,60}\b(fail(ed|ure)?|error|abort(ed)?)\b|\b(fail(ed|ure)?|abort(ed)?)\b.{0,60}backup)'
+severity = "critical"
+category = "backup"
+
+[[rules]]
+name = "Geoblocked"
+pattern = '(?i)(geo-?block|geoip.*(block|denied)|country.*(blocked|denied)|blocked.*country)'
+severity = "info"
+category = "geoblock"
+
+[[rules]]
+name = "Disk / filesystem error"
+pattern = '(?i)(I/O error|blk_update_request|medium error|\bUNC\b|disk\d+.*(disabled|error)|SMART.*(fail|error)|XFS.*(corrupt|error)|BTRFS.*(error|corrupt)|read error|write error)'
+severity = "critical"
+category = "disk"
+sources = ["unraid"]
+
+[[rules]]
+name = "Kernel / hardware problem"
+pattern = '(?i)(machine check|mce:|oom-kill|out of memory|kernel panic|segfault|call trace|hardware error)'
+severity = "critical"
+category = "host"
+sources = ["unraid"]
+
+# ----------------------------------------------------------------------------- ignore rules
+# Lines matching these never alert. Limit to some containers with sources = [...].
+# Per container you can also use the label  notifyarr.ignore=<regex>
+[[ignore]]
+pattern = '(?i)(error[_ ]?count[=: ]+0|0 errors|no errors|errors?: ?0\b)'
+
+[[ignore]]
+pattern = '(?i)level=(debug|info)'
+
+# [[ignore]]
+# pattern = 'Unable to connect to indexer'
+# sources = ["sonarr", "radarr"]
