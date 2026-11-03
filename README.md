@@ -102,7 +102,9 @@ Other bot commands: `/untrust`, `/trusted`, `/status`, `/hardware`.
 
 ### The web GUI
 
-Set `GUI_PASSWORD` (10+ characters) to turn it on. Pages: **Status**, **Alerts** (the last 500), **On / off** (a switch for every check and log rule), **Settings** (the full `config.toml`, checked before saving, with the old version kept as `config.toml.bak`), **Trusted IPs**, **Hardware** and **About**. Saving restarts Notifyarr to apply the change.
+Set `GUI_PASSWORD` (10+ characters) to turn it on. Pages: **Status**, **Alerts** (the last 500), **On / off** (a switch for every check and log rule), **Settings** (the full `config.toml`, checked before saving, with the old version kept as `config.toml.bak`), **Trusted IPs**, **Hardware** and **About**. Saving restarts Notifyarr to apply the change. The header has a **Light / Dark / Auto** switch (Auto follows your device).
+
+![On / off page in dark mode](docs/gui-switches-dark.png)
 
 ## How it gets its information
 

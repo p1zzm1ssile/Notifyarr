@@ -64,8 +64,13 @@ TOGGLES = [
 CSS = """
 :root{--bg:#f6f7f9;--card:#fff;--fg:#1d2330;--mut:#667085;--line:#e4e7ec;--acc:#e8692c;--ok:#1f9d55;
 --warn:#c98a00;--crit:#d92d20;--info:#3b82f6}
-@media (prefers-color-scheme:dark){:root{--bg:#12151b;--card:#1b2029;--fg:#e6e9ef;--mut:#98a2b3;
---line:#2a313d}}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#12151b;--card:#1b2029;--fg:#e6e9ef;
+--mut:#98a2b3;--line:#2a313d}}
+:root[data-theme=dark]{--bg:#12151b;--card:#1b2029;--fg:#e6e9ef;--mut:#98a2b3;--line:#2a313d;color-scheme:dark}
+:root[data-theme=light]{color-scheme:light}
+.theme{display:flex;gap:2px;border:1px solid var(--line);border-radius:8px;padding:2px}
+.theme button{background:transparent;color:var(--mut);padding:5px 10px;font-weight:500}
+.theme button.on{background:var(--bg);color:var(--fg)}
 *{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;
 background:var(--bg);color:var(--fg)}a{color:var(--acc)}
 header{display:flex;gap:18px;align-items:center;padding:12px 20px;border-bottom:1px solid var(--line);
@@ -181,19 +186,26 @@ def esc(s):
     return html.escape(str(s if s is not None else ""))
 
 
-def page(title, body, tab="", csrf="", flash=None):
+THEMES = (("auto", "Auto"), ("light", "Light"), ("dark", "Dark"))
+
+
+def page(title, body, tab="", csrf="", flash=None, theme="auto"):
     nav = ""
     if csrf:
         links = [("/", "Status"), ("/alerts", "Alerts"), ("/switches", "On / off"), ("/settings", "Settings"),
                  ("/ips", "Trusted IPs"), ("/hardware", "Hardware"), ("/about", "About")]
         nav = "".join(f'<a href="{u}" class="{"on" if tab == u else ""}">{t}</a>' for u, t in links)
-        nav += (f'<form method="post" action="/logout" style="margin-left:auto"><input type="hidden" name="csrf" '
+        nav += (f'<form method="post" action="/theme" class="theme" style="margin-left:auto">'
+                f'<input type="hidden" name="csrf" value="{csrf}"><input type="hidden" name="back" value="{esc(tab or "/")}">'
+                + "".join(f'<button name="theme" value="{v}" class="{"on" if theme == v else ""}" '
+                          f'title="{t} theme">{t}</button>' for v, t in THEMES) + '</form>')
+        nav += (f'<form method="post" action="/logout"><input type="hidden" name="csrf" '
                 f'value="{csrf}"><button class="sec">Log out</button></form>')
     fl = ""
     if flash:
         ok, msg = flash
         fl = f'<div class="msg {"" if ok else "err"}">{esc(msg)}</div>'
-    return (f"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport "
+    return (f"<!doctype html><html lang=en data-theme={esc(theme)}><head><meta charset=utf-8><meta name=viewport "
             f"content='width=device-width,initial-scale=1'><title>Notifyarr · {esc(title)}</title>"
             f"<style>{CSS}</style></head><body><header><b>🔔 Notifyarr</b>{nav}</header><main>{fl}{body}"
             f"</main></body></html>")
@@ -222,6 +234,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.plain(403, "Forbidden")
             return False
         return True
+
+    def theme(self):
+        m = re.search(r"(?:^|;\s*)ntheme=(auto|light|dark)\b", self.headers.get("Cookie", ""))
+        return m.group(1) if m else "auto"
 
     def session(self):
         c = self.headers.get("Cookie", "")
@@ -292,7 +308,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not fn:
             return self.plain(404, "Not found")
         title, body = fn(csrf)
-        self.html(page(title, body, path, csrf, flash))
+        self.html(page(title, body, path, csrf, flash, self.theme()))
 
     def do_POST(self):
         if not self.allowed():
@@ -306,6 +322,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.redirect("/")
         tok = s[0]
         try:
+            if path == "/theme":
+                t = f.get("theme", "auto")
+                t = t if t in ("auto", "light", "dark") else "auto"
+                back = f.get("back", "/")
+                return self.redirect(back if re.fullmatch(r"/[a-z]*", back) else "/",
+                                     cookie=f"ntheme={t}; Max-Age=31536000; Path=/; SameSite=Strict")
             if path == "/logout":
                 SESSIONS.pop(tok, None)
                 return self.redirect("/", cookie="nsid=; Max-Age=0; Path=/; HttpOnly; SameSite=Strict")
@@ -361,7 +383,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     # ---- pages
     def login_page(self, err=""):
         e = f'<div class="msg err">{esc(err)}</div>' if err else ""
-        return page("Log in", f'<div class="card login"><h2>Log in</h2>{e}<form method="post" action="/login">'
+        return page("Log in", theme=self.theme(), body=f'<div class="card login"><h2>Log in</h2>{e}<form method="post" action="/login">'
                     f'<p><input type="password" name="password" placeholder="Password" autofocus required></p>'
                     f'<button>Log in</button></form></div>')
 
