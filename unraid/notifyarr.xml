@@ -10,6 +10,7 @@
   <Overview>Alerts for your Docker containers and Unraid server, sent to Telegram and/or email: crashes, unhealthy containers, error logs, security events, disk/array/parity/mover problems, UPS, SMART, reboots and more. Every check can be switched off. Set up Telegram, email and the password in the LAN-only web GUI after first start. Never expose this container to the internet.</Overview>
   <Category>Tools: Status:Stable</Category>
   <WebUI>http://[IP]:[PORT:8484]/</WebUI>
+  <Icon>https://raw.githubusercontent.com/p1zzm1ssile/Notifyarr/main/docs/icon.png</Icon>
   <ExtraParams>--security-opt no-new-privileges:true --memory=192m --label notifyarr.enable=false</ExtraParams>
   <Config Name="Web GUI port (LAN only)" Target="8484" Default="8484" Mode="tcp" Description="Never port-forward this." Type="Port" Display="always" Required="false" Mask="false">8484</Config>
   <Config Name="Config" Target="/config" Default="/mnt/user/appdata/notifyarr" Mode="rw" Description="config.toml, trusted_ips.txt, state" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/notifyarr</Config>

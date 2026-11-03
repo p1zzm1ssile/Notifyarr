@@ -75,7 +75,8 @@ CSS = """
 *{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;
 background:var(--bg);color:var(--fg)}a{color:var(--acc)}
 header{display:flex;gap:18px;align-items:center;padding:12px 20px;border-bottom:1px solid var(--line);
-background:var(--card);flex-wrap:wrap}header b{font-size:18px;margin-right:12px}
+background:var(--card);flex-wrap:wrap}header b{font-size:18px;margin-right:12px}.brand{display:flex;align-items:center;gap:8px}
+.brand img{border-radius:6px}
 header a{text-decoration:none;color:var(--mut);font-weight:500}header a.on{color:var(--acc)}
 main{max-width:1100px;margin:0 auto;padding:20px 16px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:16px}
@@ -265,8 +266,8 @@ def page(title, body, tab="", csrf="", flash=None, theme="auto"):
         ok, msg = flash
         fl = f'<div class="msg {"" if ok else "err"}">{esc(msg)}</div>'
     return (f"<!doctype html><html lang=en data-theme={esc(theme)}><head><meta charset=utf-8><meta name=viewport "
-            f"content='width=device-width,initial-scale=1'><title>Notifyarr · {esc(title)}</title>"
-            f"<style>{CSS}</style></head><body><header><b>🔔 Notifyarr</b>{nav}</header><main>{fl}{body}"
+            f"content='width=device-width,initial-scale=1'><title>Notifyarr · {esc(title)}</title><link rel=icon href=/icon.png>"
+            f"<style>{CSS}</style></head><body><header><b class=brand><img src=/icon.png alt='' width=32 height=32>Notifyarr</b>{nav}</header><main>{fl}{body}"
             f"</main></body></html>")
 
 
@@ -309,6 +310,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return None
         return m.group(1), s[0]
 
+    def icon(self):
+        try:
+            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "icon.png"), "rb") as fh:
+                b = fh.read()
+        except OSError:
+            return self.plain(404, "Not found")
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(b)))
+        self.send_header("Cache-Control", "max-age=86400")
+        self.end_headers()
+        self.wfile.write(b)
+
     def plain(self, code, text):
         b = text.encode()
         self.send_response(code)
@@ -326,7 +340,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; "
+        self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; "
                          "form-action 'self'; frame-ancestors 'none'")
         if cookie:
             self.send_header("Set-Cookie", cookie)
@@ -350,6 +364,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not self.allowed():
             return
         path = urllib.parse.urlparse(self.path).path
+        if path == "/icon.png":
+            return self.icon()
         if not password_set():
             return self.html(self.setup_page())
         s = self.session()

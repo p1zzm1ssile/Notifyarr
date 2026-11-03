@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo.png" alt="Notifyarr logo" width="260"></p>
+
 # Notifyarr
 
 Alerts for your Docker containers and your Unraid server, sent to **Telegram** and/or **email**.
